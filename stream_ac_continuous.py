@@ -125,8 +125,8 @@ def main(env_name, seed, lr, gamma, lamda, total_steps, entropy_coeff, kappa_pol
         s = s_prime
         if terminated or truncated:
             if debug:
-                print("Episodic Return: {}, Time Step {}".format(info['episode']['r'][0], t))
-            returns.append(info['episode']['r'][0])
+                print("Episodic Return: {}, Time Step {}".format(info['episode']['r'], t))
+            returns.append(info['episode']['r'])
             term_time_steps.append(t)
             terminated, truncated = False, False
             s, _ = env.reset()
