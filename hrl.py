@@ -35,22 +35,24 @@ def train(env, manager, worker, args):
         done = False
         ep_reward = 0
         reward_agg = 0
-        start_state = obs
+        start_state, lower_steps = obs, 0
         worker_reward_fn = utils.sparse_reward if args.sparse_reward_worker else utils.dense_reward
         while not done:
             obs_worker = create_obs_for_worker(obs, sub_goal)
             action, _ = worker.agent.predict(obs_worker, deterministic=False)
             next_obs, reward, terminated, truncated, info = env.step(action)
+            lower_steps += 1
             reward_agg += reward
             info['TimeLimit.truncated'] = truncated
             worker_reward = worker_reward_fn(next_obs, sub_goal, info, args.goal_tol)
             next_obs_worker = create_obs_for_worker(next_obs, sub_goal)
             episode = store_transition(episode, obs_worker, action, worker_reward, next_obs_worker, terminated or truncated, info)
             done = terminated or truncated
-            if done or steps > args.lower_horizon or dist(next_obs, sub_goal) < args.goal_tol:
+            if done or lower_steps > args.lower_horizon or dist(next_obs, sub_goal) < args.goal_tol:
                 manager.update_params(start_state, action, reward_agg, next_obs, terminated, args.entropy_coeff_manager)
                 sub_goal = manager.sample_action(next_obs)
                 reward_agg = 0
+                lower_steps = 0
                 start_state = next_obs
             ep_reward += reward
             obs = next_obs
@@ -145,7 +147,7 @@ if __name__ == "__main__":
     parser.add_argument('--learning_starts', type=int, default=1000)
     parser.add_argument('--lower_horizon', type=int, default=10)
     parser.add_argument('--goal_tol', type=float, default=0.1)
-    parser.add_argument('--sparse_reward_worker', default=True)
+    parser.add_argument('--sparse_reward_worker', default=False)
     args = parser.parse_args()
     main(args)
 
