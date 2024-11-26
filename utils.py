@@ -17,7 +17,7 @@ def store_transition(episode, obs, action, reward, next_obs, done, info):
     return episode
 
 def sparse_reward(achieved_goal, desired_goal, info, goal_tol=0.01):
-    return np.array(float(np.linalg.norm(achieved_goal - desired_goal) < goal_tol))
+    return (np.linalg.norm(achieved_goal - desired_goal, axis=-1) < goal_tol).astype(float)
 
 def dense_reward(achieved_goal, desired_goal, info, goal_tol=None):
-    return np.array(-np.linalg.norm(achieved_goal - desired_goal))
+    return -np.linalg.norm(achieved_goal - desired_goal, axis=-1)

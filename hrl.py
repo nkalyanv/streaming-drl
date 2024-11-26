@@ -44,7 +44,6 @@ def train(env, manager, worker, args):
             reward_agg += reward
             info['TimeLimit.truncated'] = truncated
             worker_reward = worker_reward_fn(next_obs, sub_goal, info, args.goal_tol)
-
             next_obs_worker = create_obs_for_worker(next_obs, sub_goal)
             episode = store_transition(episode, obs_worker, action, worker_reward, next_obs_worker, terminated or truncated, info)
             done = terminated or truncated
@@ -63,7 +62,7 @@ def train(env, manager, worker, args):
         episode, ep_reward, steps = rollout_one_episode(env, manager, worker, args, steps)
         worker.add_to_buffer([episode])
         if steps > args.learning_starts:
-            worker.agent.train(args.batch_size, args.gradient_steps)
+            worker.agent.train(gradient_steps=args.gradient_steps, batch_size=args.batch_size)
         print("Time Step: {}, Episodic Reward: {}".format(steps, ep_reward))
         ep_rewards.append(ep_reward)
 
@@ -151,5 +150,4 @@ if __name__ == "__main__":
     main(args)
 
 #TODO: 
-# Check what action scale this stream ac is using
-# Ensure that passing the env without flattening and recording episode statistics isn't a logical error. 
+# Check what action scale this stream ac is using.
