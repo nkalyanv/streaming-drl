@@ -57,6 +57,61 @@ class NormalizeObservation(gym.Wrapper, gym.utils.RecordConstructorArgs):
         self.obs_stats.update(obs)
         return (obs - self.obs_stats.mean) / np.sqrt(self.obs_stats.var + self.epsilon)
 
+class NormalizeGoalConditionedObservation(gym.Wrapper, gym.utils.RecordConstructorArgs):
+    def __init__(self, env: gym.Env, epsilon: float = 1e-8):
+        gym.utils.RecordConstructorArgs.__init__(self, epsilon=epsilon)
+        gym.Wrapper.__init__(self, env)
+        try:
+            self.num_envs = self.get_wrapper_attr("num_envs")
+            self.is_vector_env = self.get_wrapper_attr("is_vector_env")
+        except AttributeError:
+            self.num_envs = 1
+            self.is_vector_env = False
+
+        if self.is_vector_env:
+            self.obs_stats = {
+                'observation': SampleMeanStd(shape=self.single_observation_space['observation'].shape),
+                'achieved_goal': SampleMeanStd(shape=self.single_observation_space['achieved_goal'].shape),
+                'desired_goal': SampleMeanStd(shape=self.single_observation_space['desired_goal'].shape)
+            }
+        else:
+            self.obs_stats = {
+                'observation': SampleMeanStd(shape=self.observation_space['observation'].shape),
+                'achieved_goal': SampleMeanStd(shape=self.observation_space['achieved_goal'].shape),
+                'desired_goal': SampleMeanStd(shape=self.observation_space['desired_goal'].shape)
+            }
+        self.epsilon = epsilon
+
+    def step(self, action):
+        obs, rews, terminateds, truncateds, infos = self.env.step(action)
+        if self.is_vector_env:
+            obs['observation'] = self.normalize(obs['observation'], 'observation')
+            obs['achieved_goal'] = self.normalize(obs['achieved_goal'], 'achieved_goal')
+            obs['desired_goal'] = self.normalize(obs['desired_goal'], 'desired_goal')
+        else:
+            obs['observation'] = self.normalize(np.array([obs['observation']]), 'observation')[0]
+            obs['achieved_goal'] = self.normalize(np.array([obs['achieved_goal']]), 'achieved_goal')[0]
+            obs['desired_goal'] = self.normalize(np.array([obs['desired_goal']]), 'desired_goal')[0]
+        return obs, rews, terminateds, truncateds, infos
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        if self.is_vector_env:
+            obs['observation'] = self.normalize(obs['observation'], 'observation')
+            obs['achieved_goal'] = self.normalize(obs['achieved_goal'], 'achieved_goal')
+            obs['desired_goal'] = self.normalize(obs['desired_goal'], 'desired_goal')
+        else:
+            obs['observation'] = self.normalize(np.array([obs['observation']]), 'observation')[0]
+            obs['achieved_goal'] = self.normalize(np.array([obs['achieved_goal']]), 'achieved_goal')[0]
+            obs['desired_goal'] = self.normalize(np.array([obs['desired_goal']]), 'desired_goal')[0]
+        return obs, info
+
+    def normalize(self, obs, key):
+        self.obs_stats[key].update(obs)
+        return (obs - self.obs_stats[key].mean) / np.sqrt(self.obs_stats[key].var + self.epsilon)
+
+
+
 class ScaleReward(gym.core.Wrapper, gym.utils.RecordConstructorArgs):
     def __init__(self, env: gym.Env, gamma: float = 0.99, epsilon: float = 1e-8):
         gym.utils.RecordConstructorArgs.__init__(self, gamma=gamma, epsilon=epsilon)
