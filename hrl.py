@@ -9,9 +9,15 @@ from time_wrapper import AddTimeInfo
 from utils import store_transition
 from gymnasium.spaces import Box, Dict
 import utils
+import wandb
 
 
 def train(env, manager, worker, args):
+    # Initialize wandb
+    if args.use_wandb:
+        wandb.init(project="streaming_hrl", config=args)
+    else:
+        wandb.init(project="streaming_hrl", config=args, mode='disabled')
 
     def create_obs_for_worker(obs, sub_goal):
         return {'observation': obs, 'achieved_goal': obs, 'desired_goal': sub_goal}
@@ -34,8 +40,7 @@ def train(env, manager, worker, args):
         sub_goal = manager.sample_action(obs)
         done = False
         ep_reward = 0
-        reward_agg = 0
-        start_state, lower_steps = obs, 0
+        start_state, lower_steps, reward_agg = obs, 0, 0
         worker_reward_fn = utils.sparse_reward if args.sparse_reward_worker else utils.dense_reward
         while not done:
             obs_worker = create_obs_for_worker(obs, sub_goal)
@@ -46,13 +51,13 @@ def train(env, manager, worker, args):
             info['TimeLimit.truncated'] = truncated
             worker_reward = worker_reward_fn(next_obs, sub_goal, info, args.goal_tol)
             next_obs_worker = create_obs_for_worker(next_obs, sub_goal)
-            episode = store_transition(episode, obs_worker, action, worker_reward, next_obs_worker, terminated or truncated, info)
+            episode = store_transition(episode, obs_worker, action, worker_reward, next_obs_worker, terminated, info)
             done = terminated or truncated
             if done or lower_steps > args.lower_horizon or dist(next_obs, sub_goal) < args.goal_tol:
-                manager.update_params(start_state, action, reward_agg, next_obs, terminated, args.entropy_coeff_manager)
+                if steps > args.learning_starts:    
+                    manager.update_params(start_state, sub_goal, reward_agg, next_obs, terminated, args.entropy_coeff_manager)
                 sub_goal = manager.sample_action(next_obs)
-                reward_agg = 0
-                lower_steps = 0
+                reward_agg, lower_steps = 0, 0
                 start_state = next_obs
             ep_reward += reward
             obs = next_obs
@@ -67,6 +72,12 @@ def train(env, manager, worker, args):
             worker.agent.train(gradient_steps=args.gradient_steps, batch_size=args.batch_size)
         print("Time Step: {}, Episodic Reward: {}".format(steps, ep_reward))
         ep_rewards.append(ep_reward)
+
+        # Log the episode reward to wandb
+        wandb.log({"episode_reward": ep_reward, "steps": steps})
+
+    # Finish the wandb run
+    wandb.finish()
 
 #This is done for the worker since we're using SB3, it needs to be initialized with the right goal conditioned env.
 def create_goal_conditioned_env(env, sparse_reward=True, goal_tol=0.1):
@@ -94,11 +105,18 @@ def create_goal_conditioned_env(env, sparse_reward=True, goal_tol=0.1):
 
         def step(self, action):
             obs, reward, terminated, truncated, info = self.env.step(action)
+            reward = self.compute_reward(obs, action, info)
             return {
                 'observation': obs,
                 'achieved_goal': obs,
-                'desired_goal': obs
+                'desired_goal': self.subgoal
             }, reward, terminated, truncated, info
+        
+        def set_goal(self, goal):
+            self.subgoal = goal
+        
+        def compute_reward(self, achieved_goal, desired_goal, info):
+            pass
         
     class GoalConditionedEnvSparse(GoalConditionedEnv):
         def compute_reward(self, achieved_goal, desired_goal, info):
@@ -144,12 +162,14 @@ if __name__ == "__main__":
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--gradient_steps', type=int, default=None) #If None, then it's set to the episode length
-    parser.add_argument('--learning_starts', type=int, default=1000)
-    parser.add_argument('--lower_horizon', type=int, default=10)
+    parser.add_argument('--learning_starts', type=int, default=5000)
+    parser.add_argument('--lower_horizon', type=int, default=15)
     parser.add_argument('--goal_tol', type=float, default=0.1)
-    parser.add_argument('--sparse_reward_worker', default=False)
+    parser.add_argument('--sparse_reward_worker', default=True)
+    parser.add_argument('--use_wandb', default=False)
     args = parser.parse_args()
     main(args)
 
 #TODO: 
 # Check what action scale this stream ac is using.
+# I think for lower level we should pass unnormalized observations(test lower level on these observations on a goal conditioned task to find bugs).
